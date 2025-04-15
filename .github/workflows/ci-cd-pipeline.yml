@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      IMAGE_NAME: GEROGIANNIS/ci-cd-node-app
+      IMAGE_NAME: gerogiannis1/ci-cd-node-app
       TAG: latest
 
     steps:
