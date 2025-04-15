@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: node-app
-        image: yourdockerhubusername/ci-cd-node-app:latest
+        image: GEROGIANNIS/ci-cd-node-app:latest
         ports:
         - containerPort: 3000
 ---
