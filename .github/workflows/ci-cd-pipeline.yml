@@ -48,3 +48,88 @@ jobs:
       # - name: Deploy to Kubernetes
       #   run: |
       #     kubectl apply -f k8s/deployment.yaml
+
+      - name: Set up ngrok
+        run: |
+          echo "Installing ngrok..."
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install ngrok
+          echo "ngrok installation completed"
+
+      - name: Expose app via ngrok
+        run: |
+          echo "Starting ngrok tunnel..."
+          # Set the ngrok auth token from repository secrets
+          NGROK_AUTH_TOKEN="${{ secrets.NGROK_AUTH_TOKEN }}"
+          
+          # Authenticate ngrok with the token
+          ngrok authtoken $NGROK_AUTH_TOKEN
+          echo "Authenticated with ngrok"
+          
+          ngrok http 8000 > /dev/null &
+          
+          # Give ngrok time to establish the tunnel and create the API
+          echo "Waiting for ngrok to initialize..."
+          sleep 10
+          
+          # Retry logic for getting the ngrok URL
+          max_attempts=5
+          attempt=0
+          while [ $attempt -lt $max_attempts ]; do
+            echo "Attempting to retrieve ngrok URL (attempt $((++attempt))/$max_attempts)..."
+            NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' 2>/dev/null)
+            
+            if [[ -n "$NGROK_URL" && "$NGROK_URL" != "null" ]]; then
+              echo "Successfully retrieved ngrok URL: $NGROK_URL"
+              echo "NGROK_URL=$NGROK_URL" >> $GITHUB_ENV
+              break
+            else
+              echo "Failed to get ngrok URL, waiting before retry..."
+              sleep 5
+            fi
+          done
+          
+          if [[ -z "$NGROK_URL" || "$NGROK_URL" == "null" ]]; then
+            echo "WARNING: Could not retrieve ngrok URL after $max_attempts attempts"
+            echo "Debugging information:"
+            curl -v http://localhost:4040/api/tunnels || echo "Could not connect to ngrok API"
+            ps aux | grep ngrok
+          fi
+      
+      - name: Display ngrok URL (copy-paste friendly)
+        run: |
+          if [[ -n "${{ env.NGROK_URL }}" && "${{ env.NGROK_URL }}" != "null" ]]; then
+            echo "============================================================="
+            echo "Application is now accessible at the following URL:"
+            echo "${{ env.NGROK_URL }}"
+            echo "============================================================="
+          else
+            echo "WARNING: ngrok URL is not available"
+          fi
+      
+      - name: Keep application running for 2 minutes
+        run: |
+          echo "Application is now running and will continue for 2 minutes..."
+          echo "You can access the site during this time to verify functionality"
+          
+          # Check if the server is running
+          ps aux | grep node
+          
+          # Make a test request to the local server
+          curl -s http://localhost:8000 > /dev/null && echo "Server is responding to requests" || echo "Server is not responding"
+          
+          # Display ngrok URL again
+          echo "Public URL for copy-paste: ${{ env.NGROK_URL }}"
+          
+          # Run loop to keep the workflow active for 2 minutes
+          echo "Starting 2 minute countdown..."
+          for i in {120..1}; do
+            if [ $((i % 30)) -eq 0 ]; then
+              echo "$((i/60)) minutes and $((i%60)) seconds remaining..."
+              echo "URL: ${{ env.NGROK_URL }}"
+            fi
+            sleep 1
+          done
+          
+          echo "2 minute runtime completed"
